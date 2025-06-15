@@ -32,6 +32,27 @@
   <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
-  <script type="module" src="js/app.js"></script>
+  <script type="module">
+    import { BASE_URL } from './js/config.js';
+    import { Sidebar } from './js/sidebar.js';
+
+    // Update all resource paths with BASE_URL
+    document.querySelector('link[rel="stylesheet"]').href = `${BASE_URL}css/style.css`;
+    document.querySelector('a[href="index.md"]').href = `${BASE_URL}index.md`;
+
+    // Initialize the sidebar
+    const sidebar = new Sidebar();
+    sidebar.loadNotebooks();
+
+    // Handle sidebar toggle
+    const sidebarToggleButton = document.getElementById('sidebar-toggle');
+    const container = document.querySelector('.container');
+
+    if (sidebarToggleButton && container) {
+      sidebarToggleButton.addEventListener('click', () => {
+        container.classList.toggle('collapsed');
+      });
+    }
+  </script>
 </body>
 </html> 
