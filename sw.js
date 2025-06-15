@@ -39,6 +39,11 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
+  // Skip source map requests and wasm: protocol URLs
+  if (url.href.endsWith('.map') || url.href.startsWith('wasm:')) {
+    return;
+  }
+  
   // Only handle Pyodide CDN requests
   if (url.href.startsWith(PYODIDE_CDN)) {
     event.respondWith(
