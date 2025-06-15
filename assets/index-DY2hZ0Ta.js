@@ -96,16 +96,16 @@ Please report this to https://github.com/markedjs/marked.`,n){const i="<p>An err
           <p>There was an error loading the notebook. Please try again later.</p>
           <p>Please go back to the <a href="${Se}index.md">default notebook</a>.</p>
         </div>
-      `)}}async function v1(){let n=window.location.pathname.slice(1);if(n.startsWith(Se)&&(n=n.slice(Se.length)),n==="404.html"){const s=document.getElementById("content");s&&(s.innerHTML=`
+      `)}}async function v1(){let n=window.location.pathname.slice(1);if(n.startsWith(Se)&&(n=n.slice(Se.length)),n==="404.html"){const t=document.getElementById("content");t&&(t.innerHTML=`
         <div class="error-page" style="text-align: center; padding: 50px;">
           <h1>404 Not Found</h1>
           <p>The notebook you are looking for does not exist.</p>
           <p>Please select a notebook from the sidebar or go to the <a href="${Se}index.md">Welcome! Notebook</a>.</p>
         </div>
-      `)}try{const s=await fetch(`${Se}notebooks.json`);if(!s.ok)throw new Error(`Failed to load notebooks manifest: ${s.statusText}`);nd=await s.json()}catch(s){console.error("Error fetching available notebooks:",s)}await new Bx().loadNotebooks(),n&&n.endsWith(".md")?await Bi(n):n!=="404.html"&&await Bi("index.md");const t=document.getElementById("sidebar-toggle"),i=document.querySelector(".container");t&&i&&t.addEventListener("click",()=>{i.classList.toggle("collapsed")}),document.addEventListener("notebookSelected",async s=>{await Bi(s.detail.path)}),window.addEventListener("popstate",async()=>{let s=window.location.pathname.slice(1);if(s.startsWith(Se)&&(s=s.slice(Se.length)),s==="404.html"){const r=document.getElementById("content");r&&(r.innerHTML=`
+      `)}try{const t=await fetch(`${Se}notebooks.json`);if(!t.ok)throw new Error(`Failed to load notebooks manifest: ${t.statusText}`);nd=await t.json()}catch(t){console.error("Error fetching available notebooks:",t)}await new Bx().loadNotebooks(),n&&n.endsWith(".md")?await Bi(n):n!=="404.html"&&await Bi("index.md"),document.addEventListener("notebookSelected",async t=>{await Bi(t.detail.path)}),window.addEventListener("popstate",async()=>{let t=window.location.pathname.slice(1);if(t.startsWith(Se)&&(t=t.slice(Se.length)),t==="404.html"){const i=document.getElementById("content");i&&(i.innerHTML=`
           <div class="error-page" style="text-align: center; padding: 50px;">
             <h1>404 Not Found</h1>
             <p>The notebook you are looking for does not exist.</p>
             <p>Please select a notebook from the sidebar or go to the <a href="${Se}index.md">Welcome! Notebook</a>.</p>
           </div>
-        `)}else s&&s.endsWith(".md")?await Bi(s):await Bi("index.md")})}v1();
+        `)}else t&&t.endsWith(".md")?await Bi(t):await Bi("index.md")})}v1();
