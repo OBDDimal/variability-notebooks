@@ -6,11 +6,12 @@
         const originalPath = window.location.pathname;
         const searchParams = window.location.search;
         const hash = window.location.hash;
-        window.location.href = '/index.html?path=' + encodeURIComponent(originalPath) + searchParams + hash;
+        window.location.href = 'index.html?path=' + encodeURIComponent(originalPath) + searchParams + hash;
     </script>
     <title>Redirecting...</title>
 </head>
 <body>
-    <p>Redirecting ...</p>
+    <p>Redirecting to home page...</p>
+    <p>If you are not redirected automatically, <a href="index.html">click here</a>.</p>
 </body>
 </html>
