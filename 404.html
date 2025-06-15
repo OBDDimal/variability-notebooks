@@ -6,7 +6,9 @@
         const originalPath = window.location.pathname;
         const searchParams = window.location.search;
         const hash = window.location.hash;
-        window.location.href = 'index.html?path=' + encodeURIComponent(originalPath) + searchParams + hash;
+        // Only encode special characters but preserve forward slashes
+        const encodedPath = originalPath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+        window.location.href = 'index.html?path=' + encodedPath + searchParams + hash;
     </script>
     <title>Redirecting...</title>
 </head>
