@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>variability.dev: Notebooks</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true
+      },
+      svg: {
+        fontCache: 'global'
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <script type="module">
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async () => {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            await reg.unregister();
+          }
+          
+          const swPath = '/sw.js';
+          
+          if ('serviceWorker' in navigator) {
+            const registration = await navigator.serviceWorker.register(swPath, {
+              scope: '/',
+              updateViaCache: 'none'
+            });
+            
+            if (registration.active) {
+              registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                if (newWorker) {
+                  newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'activated') {
+                      // Service worker is now active
+                    }
+                  });
+                }
+              });
+            }
+          }
+        } catch (err) {
+          console.error('ServiceWorker registration failed:', err);
+        }
+      });
+    }
+  </script>
+</head>
+<body>
+  <div class="container">
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <h2>variability.dev</h2>
+        <h4>Notebooks</h4>
+      </div>
+      <div id="notebook-list"></div>
+    </div>
+    <div id="main-content">
+      <div id="notebook-display-area">
+        <div id="content">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "ddueruem-demo",
+  "version": "1.0.0",
+  "description": "Interactive Python notebook demo",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/ensure-manifest.js && vite",
+    "build": "npm run prebuild && vite build",
+    "preview": "vite preview",
+    "prebuild": "node scripts/generate-notebook-manifest.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "vite": "^6.3.5",
+    "js-yaml": "^4.1.0"
+  },
+  "dependencies": {
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/language": "^6.11.1",
+    "@codemirror/state": "^6.5.2",
+    "codemirror": "^6.0.1",
+    "marked": "^15.0.12",
+    "mathjax": "^3.2.2",
+    "pyodide": "^0.27.7"
+  }
+}
