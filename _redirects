@@ -1,2 +1,5 @@
 # Redirect all requests to index.html
-/*    /index.html    200 
+/*    /index.html    200
+
+# Handle 404s
+/404    /index.html    404 
