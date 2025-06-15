@@ -9,30 +9,47 @@ const PRECACHE_URLS = [
   'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.asm.data'
 ];
 
+// Log when the service worker starts
+console.log('[ServiceWorker] Script loaded');
+
 self.addEventListener('install', (event) => {
   console.log('[ServiceWorker] Installing...');
+  // Skip waiting to activate immediately
+  self.skipWaiting();
+  
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
         console.log('[ServiceWorker] Cache opened');
         return cache.addAll(PRECACHE_URLS);
       })
+      .catch(error => {
+        console.error('[ServiceWorker] Cache pre-fetch failed:', error);
+        // Don't fail the installation if cache fails
+        return Promise.resolve();
+      })
   );
 });
 
 self.addEventListener('activate', (event) => {
   console.log('[ServiceWorker] Activated');
+  // Claim clients to ensure the service worker controls all pages
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('[ServiceWorker] Deleting old cache:', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
+    Promise.all([
+      // Claim all clients
+      clients.claim(),
+      // Clean up old caches
+      caches.keys().then(cacheNames => {
+        return Promise.all(
+          cacheNames.map(cacheName => {
+            if (cacheName !== CACHE_NAME) {
+              console.log('[ServiceWorker] Deleting old cache:', cacheName);
+              return caches.delete(cacheName);
+            }
+          })
+        );
+      })
+    ])
   );
 });
 
