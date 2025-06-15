@@ -64,11 +64,11 @@ p cnf 19 27
 -18 -14 0
 ```
 
-In DIMACS, lines starting with `C` are comments. Typically they are used to link variable ids to variable names. The line `p cnf 19 27` is most important. It specifies that the following clauses are in CNF, namely conjunctions of disjunctions, and that there are 19 variables and 27 CNF clauses.
+In DIMACS, lines starting with `c` are comments. Typically, they are used to link variable ids to variable names. The line `p cnf 19 27` is most important. It specifies that the following clauses are in CNF, namely conjunctions of disjunctions, and that there are 19 variables and 27 CNF clauses.
 
 The following lines denote the clauses of the formula and are all terminated by a zero (note that variable ids start at 1). For example, the line `2 -5 0` denotes the clause $(x_2 \lor \neg x_5)$ or $(\textsf{Vegetables} \lor \neg \textsf{Cucumber})$. 
 
-[PySAT ](https://pysathq.github.io/) is a Python framework that wraps many state-of-the-art solvers. The following snippet loads the DIMACS from above, initializes a solver and verifies that the formula is indeed satisfiable (SAT).
+[PySAT](https://pysathq.github.io/) is a Python framework that wraps many state-of-the-art solvers. The following snippet loads the DIMACS from above, initializes a solver and verifies that the formula is indeed satisfiable (SAT).
 
 ```python
 from pysat.formula import CNF
@@ -81,7 +81,7 @@ with Solver(bootstrap_with = cnf.clauses) as solver:
 
 ```
 
-However, we should never trust Boolean answers, after all there could be a `return True` at the other end ;-). Therefore, SAT solvers and therefore PySAT will give you proofs for SAT, namely a satisfying instance:
+However, we should never trust Boolean answers, after all there could be a `return True` at the other end ;-). Therefore, SAT solvers and therefore PySAT will give you proofs for SAT, namely a satisfying instance or model:
 
 ```python
 from pysat.formula import CNF
@@ -94,7 +94,7 @@ with Solver(bootstrap_with = cnf.clauses) as solver:
     print("SAT!:", solver.get_model())
 ```
 
-In the opposite case, when a formula is not satisfiable, solver typically return an unsatisfiable core. For demonstration, try to find a solution in which we assign `False` to $x_{10}$:
+In the opposite case, when a formula is not satisfiable, solvers typically return an unsatisfiable core. For demonstration, let's try to find a solution in which we assign `False` to $x_{10}$:
 
 ```python
 from pysat.formula import CNF
@@ -109,3 +109,4 @@ with Solver(bootstrap_with = cnf.clauses) as solver:
     print("UNSAT!, core:", solver.get_core())
 ```
 
+There is none, as `-10` is a direct violation of our first clause `10 0`.
