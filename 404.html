@@ -3,12 +3,10 @@
 <head>
     <script>
         // Get the original path and redirect to index.html with it
-        const originalPath = window.location.pathname;
+        const originalPath = window.location.pathname.slice(1); // Remove leading slash
         const searchParams = window.location.search;
         const hash = window.location.hash;
-        // Only encode special characters but preserve forward slashes
-        const encodedPath = originalPath.split('/').map(segment => encodeURIComponent(segment)).join('/');
-        window.location.href = 'index.html?path=' + encodedPath + searchParams + hash;
+        window.location.href = 'index.html?path=' + originalPath + searchParams + hash;
     </script>
     <title>Redirecting...</title>
 </head>
