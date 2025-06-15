@@ -1,0 +1,12 @@
+[
+  {
+    "title": "Welcome!",
+    "path": "index.md",
+    "root": true
+  },
+  {
+    "title": "PySAT Introduction",
+    "path": "pysat.md",
+    "root": false
+  }
+]
