@@ -133,6 +133,7 @@ async function loadNotebook(path) {
 
   const isValidNotebookPath = availableNotebooks.some(notebook => notebook.path === path);
 
+
   if (!isValidNotebookPath && path !== 'index.md') {
     const content = document.getElementById('content');
     if (content) {
@@ -148,7 +149,7 @@ async function loadNotebook(path) {
   }
 
   try {
-    const response = await fetch(`${BASE_URL}notebooks/${path}`);
+    const response = await fetch(`notebooks/${path}`);
     if (!response.ok) {
       throw new Error(`Failed to load notebook: ${response.statusText}`);
     }
