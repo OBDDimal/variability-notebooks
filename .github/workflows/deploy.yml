@@ -24,11 +24,16 @@ jobs:
         run: |
           cp -r notebooks public/
 
+
       - name: Generate notebook manifest
         run: node scripts/generate-notebook-manifest.js
 
       - name: Build
         run: npm run build
+      
+      - name: Prevent jekyll
+        run: |
+          touch dist/.nojekyll 
 
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
