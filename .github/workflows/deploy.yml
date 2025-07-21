@@ -22,8 +22,7 @@ jobs:
 
       - name: Copy notebooks to public directory
         run: |
-          mkdir -p public/notebooks
-          cp -r notebooks/* public/notebooks/
+          cp -r notebooks public/
 
       - name: Generate notebook manifest
         run: node scripts/generate-notebook-manifest.js

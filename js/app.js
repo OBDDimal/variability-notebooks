@@ -149,7 +149,8 @@ async function loadNotebook(path) {
   }
 
   try {
-    const response = await fetch(`notebooks/${path}`);
+    let fetchPath = path.startsWith('notebooks/') ? path : `notebooks/${path}`;
+    const response = await fetch(`${BASE_URL}${fetchPath}`);
     if (!response.ok) {
       throw new Error(`Failed to load notebook: ${response.statusText}`);
     }

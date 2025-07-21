@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
-  const base = command === 'serve' ? '/' : 'https://notebooks.variability.dev/'
+  const base = '/'; // Use '/' for both dev and production
   
   return {
     base,
