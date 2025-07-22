@@ -5,6 +5,11 @@
     "root": true
   },
   {
+    "title": "JFS Coding Env",
+    "path": "jfsdemo.md",
+    "root": false
+  },
+  {
     "title": "PySAT Introduction",
     "path": "pysat.md",
     "root": false
