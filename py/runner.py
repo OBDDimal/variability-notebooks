@@ -2,10 +2,13 @@ import io
 import base64
 import sys
 import json
+import os
 
-# Try to import matplotlib, but don't fail if it's not available
 plt = None
 try:
+    os.environ["MPLBACKEND"] = "Agg"
+    import matplotlib
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 except ImportError:
     pass
