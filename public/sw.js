@@ -1,12 +1,12 @@
-const CACHE_NAME = 'pyodide-cache-v1';
-const PYODIDE_CDN = 'https://cdn.jsdelivr.net/pyodide/';
+const CACHE_NAME = 'pyodide-runtime-v1';
+const PYODIDE_RUNTIME_PREFIX = 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/';
 
-// Pre-cache the main Pyodide files
 const PRECACHE_URLS = [
-  'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js',
-  'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.asm.js',
-  'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.asm.wasm',
-  'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.asm.data'
+  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js',
+  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.asm.js',
+  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.asm.wasm',
+  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide-lock.json',
+  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/python_stdlib.zip'
 ];
 
 // Log when the service worker starts
@@ -55,23 +55,19 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  
-  // Skip source map requests and wasm: protocol URLs
+
   if (url.href.endsWith('.map') || url.href.startsWith('wasm:')) {
     return;
   }
-  
-  // Only handle Pyodide CDN requests
-  if (url.href.startsWith(PYODIDE_CDN)) {
+
+  if (url.href.startsWith(PYODIDE_RUNTIME_PREFIX)) {
     event.respondWith(
       caches.match(event.request)
         .then(response => {
           if (response) {
-            console.log('[ServiceWorker] Cache hit:', event.request.url);
             return response;
           }
 
-          console.log('[ServiceWorker] Cache miss:', event.request.url);
           return fetch(event.request)
             .then(networkResponse => {
               if (!networkResponse || networkResponse.status !== 200) {
@@ -81,22 +77,20 @@ self.addEventListener('fetch', (event) => {
               const responseToCache = networkResponse.clone();
               caches.open(CACHE_NAME).then(cache => {
                 cache.put(event.request, responseToCache);
-                console.log('[ServiceWorker] Cached:', event.request.url);
               });
 
               return networkResponse;
             })
             .catch(error => {
-              console.error('[ServiceWorker] Fetch failed:', error);
               return caches.match(event.request).then(cachedResponse => {
                 if (cachedResponse) {
-                  console.log('[ServiceWorker] Serving from cache after network failure:', event.request.url);
                   return cachedResponse;
                 }
+
                 throw error;
               });
             });
         })
     );
   }
-}); 
+});

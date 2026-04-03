@@ -28,32 +28,127 @@ import { Sidebar } from "./sidebar.js";
 import { parseMarkdownForNotebook } from "./markdownParser.js";
 import { BASE_URL } from './config.js';
 
-let currentPyodide = null;
 let pyodideReady = false;
+let pyodideWorker = null;
+let pyodideInitPromise = null;
+let pyodideRequestId = 0;
+let activeNotebookLoadId = 0;
+const pendingPyodideRequests = new Map();
 let availableNotebooks = [];
 
-async function initializeNotebookEnvironment(dependencies) {
+function rejectPendingPyodideRequests(error) {
+  for (const [requestId, handlers] of pendingPyodideRequests.entries()) {
+    handlers.reject(error);
+    pendingPyodideRequests.delete(requestId);
+  }
+}
+
+function handlePyodideWorkerMessage(event) {
+  const { requestId, ok, type, outputs, error } = event.data || {};
+
+  if (!requestId || !pendingPyodideRequests.has(requestId)) {
+    return;
+  }
+
+  const handlers = pendingPyodideRequests.get(requestId);
+  pendingPyodideRequests.delete(requestId);
+
+  if (!ok) {
+    const message = error?.message || 'Pyodide worker request failed.';
+    const workerError = new Error(message);
+    workerError.name = error?.name || 'Error';
+    workerError.stack = error?.stack || workerError.stack;
+    workerError.type = error?.type || null;
+    handlers.reject(workerError);
+    return;
+  }
+
+  if (type === 'init') {
+    pyodideReady = true;
+  }
+
+  handlers.resolve(outputs ?? event.data);
+}
+
+function handlePyodideWorkerError(event) {
+  pyodideReady = false;
+  pyodideInitPromise = null;
+
+  const workerError = event.error || new Error(event.message || 'Pyodide worker crashed.');
+  rejectPendingPyodideRequests(workerError);
+  pyodideWorker = null;
+}
+
+function ensurePyodideWorker() {
+  if (pyodideWorker) {
+    return pyodideWorker;
+  }
+
+  pyodideWorker = new Worker(new URL('./pyodide-worker.js', import.meta.url), { type: 'module' });
+  pyodideWorker.addEventListener('message', handlePyodideWorkerMessage);
+  pyodideWorker.addEventListener('error', handlePyodideWorkerError);
+
+  return pyodideWorker;
+}
+
+function terminatePyodideWorker() {
+  pyodideReady = false;
+  pyodideInitPromise = null;
+
+  if (pyodideWorker) {
+    pyodideWorker.terminate();
+    pyodideWorker = null;
+  }
+
+  rejectPendingPyodideRequests(new Error('Pyodide worker was reset.'));
+}
+
+function postPyodideMessage(type, payload = {}) {
+  ensurePyodideWorker();
+
+  const requestId = ++pyodideRequestId;
+
+  const requestPromise = new Promise((resolve, reject) => {
+    pendingPyodideRequests.set(requestId, { resolve, reject });
+  });
+
+  pyodideWorker.postMessage({ requestId, type, payload });
+
+  return requestPromise;
+}
+
+async function initializeNotebookEnvironment(dependencies, namedSnippets) {
   try {
-    currentPyodide = await window.loadPyodide();    
+    pyodideReady = false;
 
-    if (dependencies && Array.isArray(dependencies)) {
-      await currentPyodide.loadPackage(dependencies);
-    }
-
-    const runnerResponse = await fetch(`${BASE_URL}py/runner.py`);
-    if (!runnerResponse.ok) {
-      throw new Error(`Failed to load runner.py: ${runnerResponse.statusText}`);
-    }
-    const runnerCode = await runnerResponse.text();
-
-    currentPyodide.runPython(runnerCode);
+    const response = await postPyodideMessage('init', {
+      dependencies: Array.isArray(dependencies) ? dependencies : [],
+      namedSnippets: Array.from(namedSnippets.entries()).map(([filename, snippet]) => ({
+        filename,
+        content: snippet?.content || '',
+      })),
+    });
 
     pyodideReady = true;
-    return currentPyodide;
+    return response;
   } catch (error) {
-    console.error(`Failed to initialize Python environment:`, error);
+    console.error('Failed to initialize Python environment:', error);
     return null;
   }
+}
+
+async function syncSnippetFile(filename, content) {
+  if (!pyodideInitPromise) {
+    throw new Error('Python environment is not initializing.');
+  }
+
+  await pyodideInitPromise;
+
+  if (!pyodideReady) {
+    throw new Error('Python environment is not ready.');
+  }
+
+  return postPyodideMessage('update-file', { filename, content });
 }
 
 async function executeCode(code, output, playBtn) {
@@ -62,6 +157,10 @@ async function executeCode(code, output, playBtn) {
   }
 
   try {
+    if (!pyodideInitPromise) {
+      throw new Error('Python environment is not initializing.');
+    }
+
     if (!pyodideReady) {
       output.innerHTML = `
         <div class="loading-spinner-container">
@@ -72,22 +171,17 @@ async function executeCode(code, output, playBtn) {
       output.classList.add('visible', 'loading-output');
     }
 
-    while (!currentPyodide || !pyodideReady) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    const run_code = currentPyodide.globals.get('run_code');
-    if (!run_code) {
-      output.innerHTML = '<pre>Error: Python runner not loaded.</pre>';
-      return;
-    }
+    await pyodideInitPromise;
 
     output.innerHTML = '<pre>Running...</pre>';
     output.classList.remove('loading-output');
     output.classList.add('visible');
 
-    const resultJson = await run_code(code);
-    const outputs = JSON.parse(resultJson);
+    if (!pyodideReady) {
+      throw new Error('Python environment failed to initialize.');
+    }
+
+    const outputs = await postPyodideMessage('execute', { code });
 
     output.innerHTML = '';
     output.classList.remove('loading-output');
@@ -148,6 +242,8 @@ async function loadNotebook(path) {
   }
 
   try {
+    const loadId = ++activeNotebookLoadId;
+
     const response = await fetch(`${BASE_URL}notebooks/${path}`);
     if (!response.ok) {
       throw new Error(`Failed to load notebook: ${response.statusText}`);
@@ -155,17 +251,12 @@ async function loadNotebook(path) {
     const markdown = await response.text();
     const { metadata, tokens, namedSnippets } = parseMarkdownForNotebook(markdown);
 
-    currentPyodide = null;
-    pyodideReady = false;
-    initializeNotebookEnvironment(metadata.dependencies).then(pyodideInstance => {
-      if (pyodideInstance) {
-        for (const [filename, { content }] of namedSnippets) {
-          pyodideInstance.FS.writeFile(filename, content);
-        }
-      }
-    }).catch(error => {
-      console.error('Error initializing notebook environment or writing snippets:', error);
-    });
+    if (loadId !== activeNotebookLoadId) {
+      return;
+    }
+
+    terminatePyodideWorker();
+    pyodideInitPromise = initializeNotebookEnvironment(metadata.dependencies, namedSnippets);
 
     notebookDisplayArea.innerHTML = '';
 
@@ -302,10 +393,13 @@ async function loadNotebook(path) {
           const originalContent = token.text;
 
           saveButton.addEventListener('click', () => {
-            if (currentPyodide && pyodideReady) {
-              currentPyodide.FS.writeFile(token.filename, editor.state.doc.toString());
-              saveButton.disabled = true;
-            }
+            syncSnippetFile(token.filename, editor.state.doc.toString())
+              .then(() => {
+                saveButton.disabled = true;
+              })
+              .catch(error => {
+                console.error('Failed to save snippet file:', error);
+              });
           });
 
           revertButton.addEventListener('click', () => {
@@ -316,10 +410,13 @@ async function loadNotebook(path) {
                 insert: originalContent
               }
             });
-            if (currentPyodide && pyodideReady) {
-              currentPyodide.FS.writeFile(token.filename, originalContent);
-            }
-            saveButton.disabled = true;
+            syncSnippetFile(token.filename, originalContent)
+              .then(() => {
+                saveButton.disabled = true;
+              })
+              .catch(error => {
+                console.error('Failed to revert snippet file:', error);
+              });
           });
         }
 
@@ -460,6 +557,10 @@ async function main() {
     } else {
       await loadNotebook('index.md');
     }
+  });
+
+  window.addEventListener('beforeunload', () => {
+    terminatePyodideWorker();
   });
 }
 

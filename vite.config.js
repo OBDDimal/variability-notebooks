@@ -6,6 +6,9 @@ export default defineConfig(({ command }) => {
   
   return {
     base,
+    worker: {
+      format: 'es'
+    },
     build: {
       outDir: 'dist',
       assetsDir: 'assets',
