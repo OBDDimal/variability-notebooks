@@ -67,7 +67,10 @@ def run_code(code: str) -> str:
         sys.stdout = old_stdout
         if plt is not None:
             plt.show = show_original
-        outputs.append({"type": "text", "content": f"Error: {str(e)}"})
+        printed = _stdout_buffer.getvalue()
+        if printed:
+            outputs.append({"type": "text", "content": printed})
+        outputs.append({"type": "error", "content": f"{type(e).__name__}: {e}"})
 
     sys.stdout = old_stdout
     if plt is not None:

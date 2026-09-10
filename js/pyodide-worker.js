@@ -7,6 +7,11 @@ const PYODIDE_ASSET_BASE_URL = `https://cdn.jsdelivr.net/pyodide/v${pyodideVersi
 let pyodide = null;
 let runCode = null;
 
+// Filenames of the notebook's named snippets. These files are seeded into the
+// Pyodide FS at init and read back after every execution so the editor can
+// reflect writes a cell made to them (files as outputs).
+let namedSnippetFilenames = new Set();
+
 function serializeError(error) {
   if (error instanceof Error) {
     return {
@@ -32,6 +37,59 @@ function cleanupPyodide() {
 
   runCode = null;
   pyodide = null;
+  namedSnippetFilenames = new Set();
+}
+
+// Read every named-snippet file back from the Pyodide FS. Used after each
+// execution to surface files a cell wrote to. Files that were removed or hold
+// non-UTF-8 data are skipped.
+function readNamedSnippetFiles() {
+  const files = {};
+
+  for (const filename of namedSnippetFilenames) {
+    try {
+      files[filename] = pyodide.FS.readFile(filename, { encoding: "utf8" });
+    } catch (error) {
+      // deleted, or binary content that will not decode as UTF-8 — skip it
+    }
+  }
+
+  return files;
+}
+
+// Install each declared dependency. Packages that ship with the Pyodide
+// distribution are loaded via loadPackage (served from the CDN and cached by the
+// service worker). Anything Pyodide does not know about — e.g. pure-Python
+// packages published only on PyPI, like uvllang — falls back to micropip, which
+// fetches wheels from files.pythonhosted.org. Those requests are also handled by
+// the service worker (see sw.js) so the fallback stays cache-friendly on repeat
+// visits.
+async function installDependencies(dependencies) {
+  const micropipTargets = [];
+
+  for (const dependency of dependencies) {
+    try {
+      await pyodide.loadPackage(dependency);
+    } catch (error) {
+      console.warn(
+        `[pyodide-worker] loadPackage failed for "${dependency}", falling back to micropip.`,
+        error,
+      );
+      micropipTargets.push(dependency);
+    }
+  }
+
+  if (micropipTargets.length === 0) {
+    return;
+  }
+
+  await pyodide.loadPackage("micropip");
+  const micropip = pyodide.pyimport("micropip");
+  try {
+    await micropip.install(micropipTargets);
+  } finally {
+    micropip.destroy();
+  }
 }
 
 async function initializePyodide({ dependencies = [], namedSnippets = [] } = {}) {
@@ -42,7 +100,7 @@ async function initializePyodide({ dependencies = [], namedSnippets = [] } = {})
   });
 
   if (Array.isArray(dependencies) && dependencies.length > 0) {
-    await pyodide.loadPackage(dependencies);
+    await installDependencies(dependencies);
   }
 
   const runnerResponse = await fetch(`${BASE_URL}py/runner.py`);
@@ -60,6 +118,7 @@ async function initializePyodide({ dependencies = [], namedSnippets = [] } = {})
     }
 
     pyodide.FS.writeFile(snippet.filename, snippet.content || "");
+    namedSnippetFilenames.add(snippet.filename);
   }
 }
 
@@ -69,7 +128,7 @@ async function executeCode(code) {
   }
 
   const resultJson = await runCode(code);
-  return JSON.parse(resultJson);
+  return { outputs: JSON.parse(resultJson), files: readNamedSnippetFiles() };
 }
 
 async function updateSnippetFile({ filename, content }) {
@@ -78,6 +137,7 @@ async function updateSnippetFile({ filename, content }) {
   }
 
   pyodide.FS.writeFile(filename, content || "");
+  namedSnippetFilenames.add(filename);
 }
 
 self.addEventListener("message", async (event) => {
@@ -95,8 +155,8 @@ self.addEventListener("message", async (event) => {
     }
 
     if (type === "execute") {
-      const outputs = await executeCode(payload.code || "");
-      self.postMessage({ requestId, ok: true, type: "execute", outputs });
+      const { outputs, files } = await executeCode(payload.code || "");
+      self.postMessage({ requestId, ok: true, type: "execute", outputs, files });
       return;
     }
 

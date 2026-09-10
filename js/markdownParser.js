@@ -14,6 +14,12 @@ marked.setOptions({
   headerIds: false
 });
 
+// Drop trailing whitespace / blank lines from a code block so editors and files
+// don't carry a dangling empty line.
+function stripTrailingBlankLines(text) {
+  return typeof text === 'string' ? text.replace(/\s+$/, '') : text;
+}
+
 // General YAML block parser
 function parseYAMLBlock(yamlString) {
   try {
@@ -67,10 +73,22 @@ export function parseMarkdownForNotebook(markdownText, path) {
     const snippetData = parseYAMLBlock(yamlContent);
 
     if (snippetData && snippetData.filename) {
+      // Accept both `read-only`/`readonly` and `show-only`/`showOnly`.
+      const readonly = Boolean(
+        snippetData['read-only'] ?? snippetData.readonly ?? false
+      );
+      const showOnlyValue = Number(
+        snippetData['show-only'] ?? snippetData.showOnly
+      );
+      const showOnly =
+        Number.isFinite(showOnlyValue) && showOnlyValue > 0
+          ? Math.floor(showOnlyValue)
+          : null;
+
       namedSnippetsForPyodide.set(snippetData.filename, {
         language: language,
-        content: codeContent,
-        readonly: snippetData.readonly || false
+        content: stripTrailingBlankLines(codeContent),
+        readonly: readonly
       });
 
       // Replace the entire named snippet markdown with just the code block part
@@ -82,7 +100,8 @@ export function parseMarkdownForNotebook(markdownText, path) {
         originalCodeContent: codeContent,
         filename: snippetData.filename,
         lang: language,
-        readonly: snippetData.readonly || false
+        readonly: readonly,
+        showOnly: showOnly
       });
     } else {
       // If filename not found or YAML parse error, keep the original content in the cleaned markdown
@@ -101,23 +120,31 @@ export function parseMarkdownForNotebook(markdownText, path) {
   const finalProcessedTokens = [];
   let codeBlockIdx = 0;
 
-  // Second pass: augment 'code' tokens that correspond to named snippets
+  // Second pass: augment 'code' tokens that correspond to named snippets, and
+  // strip any trailing blank line from every code block.
   for (const token of rawTokens) {
+    if (token.type !== 'code') {
+      finalProcessedTokens.push(token);
+      continue;
+    }
+
+    const trimmedToken = { ...token, text: stripTrailingBlankLines(token.text) };
+
     if (
-      token.type === 'code' && 
       codeBlockIdx < codeBlockLocations.length &&
       token.text === codeBlockLocations[codeBlockIdx].originalCodeContent &&
       token.lang === codeBlockLocations[codeBlockIdx].lang
     ) {
-      // This is a code block that was originally part of a named snippet
       finalProcessedTokens.push({
-        ...token, // Keep all original properties
+        ...trimmedToken,
         filename: codeBlockLocations[codeBlockIdx].filename,
         isNamedSnippet: true,
+        readonly: codeBlockLocations[codeBlockIdx].readonly,
+        showOnly: codeBlockLocations[codeBlockIdx].showOnly,
       });
       codeBlockIdx++;
     } else {
-      finalProcessedTokens.push(token);
+      finalProcessedTokens.push(trimmedToken);
     }
   }
 

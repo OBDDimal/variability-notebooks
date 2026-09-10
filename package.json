@@ -13,8 +13,8 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "vite": "^6.3.5",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "vite": "^6.3.5"
   },
   "dependencies": {
     "@codemirror/lang-python": "^6.2.1",
@@ -23,6 +23,6 @@
     "codemirror": "^6.0.1",
     "marked": "^15.0.12",
     "mathjax": "^3.2.2",
-    "pyodide": "^0.27.7"
+    "pyodide": "^314.0.6"
   }
 }
