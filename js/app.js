@@ -23,6 +23,7 @@ import { lintKeymap } from "@codemirror/lint";
 import {python} from "@codemirror/lang-python";
 
 import {monokaiPython} from "./monokai.js";
+import {dimacsLanguage, uvlLanguage} from "./notebook-languages.js";
 
 import { Sidebar } from "./sidebar.js";
 import { parseMarkdownForNotebook } from "./markdownParser.js";
@@ -35,6 +36,9 @@ let pyodideRequestId = 0;
 let activeNotebookLoadId = 0;
 const pendingPyodideRequests = new Map();
 let availableNotebooks = [];
+// filename -> { editor, markSynced } for the currently loaded notebook's named
+// snippets, so cell output written to those files can be reflected in the editor.
+let snippetEditors = new Map();
 
 function rejectPendingPyodideRequests(error) {
   for (const [requestId, handlers] of pendingPyodideRequests.entries()) {
@@ -65,6 +69,11 @@ function handlePyodideWorkerMessage(event) {
 
   if (type === 'init') {
     pyodideReady = true;
+  }
+
+  if (type === 'execute') {
+    handlers.resolve(event.data);
+    return;
   }
 
   handlers.resolve(outputs ?? event.data);
@@ -151,6 +160,89 @@ async function syncSnippetFile(filename, content) {
   return postPyodideMessage('update-file', { filename, content });
 }
 
+// Reflect files a cell wrote to back into their snippet editors. `files` is a
+// { filename: content } map read from the Pyodide FS after execution.
+function applySnippetFileUpdates(files) {
+  if (!files) {
+    return;
+  }
+
+  for (const [filename, rawContent] of Object.entries(files)) {
+    const entry = snippetEditors.get(filename);
+    if (!entry) {
+      continue;
+    }
+
+    const content = rawContent.replace(/\s+$/, '');
+    const { editor } = entry;
+    if (editor.state.doc.toString() === content) {
+      continue;
+    }
+
+    editor.dispatch({
+      changes: { from: 0, to: editor.state.doc.length, insert: content },
+    });
+
+    if (typeof entry.markSynced === 'function') {
+      entry.markSynced(content);
+    }
+
+    const container = editor.dom.closest('.cm-editor-container');
+    if (container) {
+      container.classList.remove('cm-editor-container--file-updated');
+      // restart the highlight animation on repeated writes
+      void container.offsetWidth;
+      container.classList.add('cm-editor-container--file-updated');
+    }
+  }
+}
+
+// Add the "Run all" button to a notebook. Clicking it runs every Python cell
+// top to bottom, waiting for each to finish before starting the next and
+// stopping at the first cell that errors.
+function addRunAllButton(container, pythonCells) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'notebook-run-all';
+  button.title = 'Run all cells in order';
+  button.innerHTML = '<span class="notebook-run-all__glyph"></span><span>Run all</span>';
+
+  let running = false;
+  button.addEventListener('click', async () => {
+    if (running) {
+      return;
+    }
+    running = true;
+    button.classList.add('running');
+    button.disabled = true;
+
+    try {
+      for (const cell of pythonCells) {
+        cell.editorContainer.scrollIntoView({ block: 'nearest' });
+        const result = await executeCode(
+          cell.editor.state.doc.toString(),
+          cell.output,
+          cell.playBtn
+        );
+        if (result && result.ok === false) {
+          break;
+        }
+      }
+    } finally {
+      running = false;
+      button.classList.remove('running');
+      button.disabled = false;
+    }
+  });
+
+  // A zero-height sticky anchor keeps the button pinned to the notebook's
+  // top-right corner while scrolling through the cells.
+  const anchor = document.createElement('div');
+  anchor.className = 'notebook-run-all-anchor';
+  anchor.appendChild(button);
+  container.insertBefore(anchor, container.firstChild);
+}
+
 async function executeCode(code, output, playBtn) {
   if (playBtn) {
     playBtn.classList.add('running');
@@ -181,15 +273,32 @@ async function executeCode(code, output, playBtn) {
       throw new Error('Python environment failed to initialize.');
     }
 
-    const outputs = await postPyodideMessage('execute', { code });
+    // Make sure any in-flight edits to snippet files land before the cell runs.
+    await Promise.all(
+      [...snippetEditors.values()]
+        .map(entry => (typeof entry.flushSync === 'function' ? entry.flushSync() : null))
+    );
+
+    const { outputs, files } = await postPyodideMessage('execute', { code });
+
+    applySnippetFileUpdates(files);
 
     output.innerHTML = '';
     output.classList.remove('loading-output');
 
+    let hadError = false;
     for (const chunk of outputs) {
-      if (chunk.type === 'text') {
+      if (chunk.type === 'text' || chunk.type === 'error') {
+        const text = (chunk.content ?? '').replace(/\s+$/, '');
+        if (!text) {
+          continue;
+        }
         const pre = document.createElement('pre');
-        pre.textContent = chunk.content;
+        pre.textContent = text;
+        if (chunk.type === 'error') {
+          pre.classList.add('output-error');
+          hadError = true;
+        }
         output.appendChild(pre);
       } else if (chunk.type === 'image') {
         const img = document.createElement('img');
@@ -200,11 +309,18 @@ async function executeCode(code, output, playBtn) {
       }
     }
 
-    output.classList.add('visible');
+    // Keep the output area collapsed when a run produced nothing to show.
+    output.classList.toggle('visible', output.childElementCount > 0);
+    return { ok: !hadError };
   } catch (e) {
-    output.innerHTML = `<pre>Error: ${e}</pre>`;
+    output.innerHTML = '';
+    const pre = document.createElement('pre');
+    pre.classList.add('output-error');
+    pre.textContent = `Error: ${e}`;
+    output.appendChild(pre);
     output.classList.remove('loading-output');
     output.classList.add('visible');
+    return { ok: false };
   } finally {
     if (playBtn) {
       playBtn.classList.remove('running');
@@ -289,6 +405,8 @@ async function loadNotebook(path) {
     notebookDisplayArea.appendChild(mainContentInner);
 
     var currentCodeBlockID = 0;
+    snippetEditors = new Map();
+    const pythonCells = [];
 
     for (const token of tokens) {
       if (token.type === 'code') {
@@ -306,41 +424,60 @@ async function loadNotebook(path) {
           filenameDisplay.innerHTML = `<span class="file-icon">📄</span> ${token.filename}`;
         }
 
+        const DEFAULT_COLLAPSE_LINES = 20;
+
         let languageExtension = [];
         let themeExtension = [];
         let isCollapsible = false;
+        let collapseLines = DEFAULT_COLLAPSE_LINES;
+        let startCollapsed = false;
         const highlightCompartment = new Compartment();
 
-        if (token.lang === 'python') {
+        const lang = (token.lang || '').toLowerCase();
+
+        if (lang === 'python') {
           languageExtension = [python()];
           themeExtension = [monokaiPython];
           editorContainer.classList.add('cm-editor-container--python');
         } else {
+          if (lang === 'dimacs') {
+            languageExtension = [dimacsLanguage];
+          } else if (lang === 'uvl') {
+            languageExtension = [uvlLanguage];
+          }
+
           const lineCount = token.text.split('\n').length;
-          isCollapsible = lineCount > 10;
+          // `show-only: N` caps the visible lines and starts the block collapsed;
+          // without it a long block shows in full but can be collapsed to 20 lines.
+          collapseLines = token.showOnly > 0 ? token.showOnly : DEFAULT_COLLAPSE_LINES;
+          isCollapsible = lineCount > collapseLines;
+          startCollapsed = isCollapsible && token.showOnly > 0;
+
           if (isCollapsible) {
             editorContainer.classList.add('cm-editor-container--collapsible');
+            if (!startCollapsed) {
+              editorContainer.classList.add('cm-editor-container--expanded');
+            }
           }
         }
 
-        let saveButton, revertButton;
-        if (token.isNamedSnippet && token.lang !== 'python') {
+        const isEditableSnippet =
+          token.isNamedSnippet && token.lang !== 'python' && !token.readonly;
+
+        // Edits to an editable snippet are synced to the Pyodide FS live, so
+        // there is no "save" step — only a reset back to the original content.
+        let revertButton;
+        let onSnippetEdit = null;
+        if (isEditableSnippet) {
           const buttonContainer = document.createElement('div');
           buttonContainer.className = 'snippet-buttons';
-          
-          saveButton = document.createElement('button');
-          saveButton.className = 'snippet-button save-button';
-          saveButton.innerHTML = '✓';
-          saveButton.title = 'Save changes';
-          saveButton.disabled = true;
-          
+
           revertButton = document.createElement('button');
           revertButton.className = 'snippet-button revert-button';
-          revertButton.innerHTML = '↺';
-          revertButton.title = 'Revert changes';
+          revertButton.textContent = '↺';
+          revertButton.title = 'Reset to original';
           revertButton.disabled = true;
-          
-          buttonContainer.appendChild(saveButton);
+
           buttonContainer.appendChild(revertButton);
           filenameDisplay.appendChild(buttonContainer);
         }
@@ -377,11 +514,10 @@ async function loadNotebook(path) {
             ...languageExtension,
             ...themeExtension,
             ...(token.readonly ? [EditorView.editable.of(false)] : []),
-            ...(token.isNamedSnippet && token.lang !== 'python' ? [
+            ...(isEditableSnippet ? [
               EditorView.updateListener.of(update => {
-                if (update.docChanged) {
-                  saveButton.disabled = false;
-                  revertButton.disabled = false;
+                if (update.docChanged && onSnippetEdit) {
+                  onSnippetEdit();
                 }
               })
             ] : []),
@@ -389,35 +525,71 @@ async function loadNotebook(path) {
           parent: editorContainer,
         });
 
-        if (token.isNamedSnippet && token.lang !== 'python') {
-          const originalContent = token.text;
+        if (isCollapsible) {
+          // Size the collapsed view to exactly `collapseLines` rows of the
+          // editor, plus the filename bar when present.
+          const lineHeight = editor.defaultLineHeight || 19;
+          const chrome =
+            filenameDisplay.style.display !== 'none' ? filenameDisplay.offsetHeight : 0;
+          editorContainer.style.setProperty(
+            '--cm-collapsed-height',
+            `${Math.round(collapseLines * lineHeight) + 8 + chrome}px`
+          );
+        }
 
-          saveButton.addEventListener('click', () => {
-            syncSnippetFile(token.filename, editor.state.doc.toString())
-              .then(() => {
-                saveButton.disabled = true;
-              })
-              .catch(error => {
-                console.error('Failed to save snippet file:', error);
-              });
-          });
+        if (token.isNamedSnippet) {
+          const entry = { editor };
 
-          revertButton.addEventListener('click', () => {
-            editor.dispatch({
-              changes: {
-                from: 0,
-                to: editor.state.doc.length,
-                insert: originalContent
+          if (isEditableSnippet) {
+            let originalContent = token.text;
+            let lastSynced = token.text;
+            let syncTimer = null;
+
+            // Push the editor's current content to the Pyodide FS. Returns a
+            // promise so callers (e.g. running a cell) can wait for the write.
+            const flushSync = () => {
+              clearTimeout(syncTimer);
+              syncTimer = null;
+              const current = editor.state.doc.toString();
+              revertButton.disabled = current === originalContent;
+              if (current === lastSynced) {
+                return Promise.resolve();
               }
-            });
-            syncSnippetFile(token.filename, originalContent)
-              .then(() => {
-                saveButton.disabled = true;
-              })
-              .catch(error => {
-                console.error('Failed to revert snippet file:', error);
+              lastSynced = current;
+              return syncSnippetFile(token.filename, current).catch(error => {
+                console.error('Failed to sync snippet file:', error);
               });
-          });
+            };
+            entry.flushSync = flushSync;
+
+            onSnippetEdit = () => {
+              clearTimeout(syncTimer);
+              syncTimer = setTimeout(flushSync, 200);
+              revertButton.disabled =
+                editor.state.doc.toString() === originalContent;
+            };
+
+            // A cell that writes to this file makes the new content the baseline
+            // that "reset" returns to.
+            entry.markSynced = (content) => {
+              originalContent = content;
+              lastSynced = content;
+              revertButton.disabled = true;
+            };
+
+            revertButton.addEventListener('click', () => {
+              editor.dispatch({
+                changes: {
+                  from: 0,
+                  to: editor.state.doc.length,
+                  insert: originalContent
+                }
+              });
+              flushSync();
+            });
+          }
+
+          snippetEditors.set(token.filename, entry);
         }
 
         let interacted = false;
@@ -445,19 +617,20 @@ async function loadNotebook(path) {
           expandOverlay.className = 'cm-expand-overlay';
           const expandButton = document.createElement('button');
           expandButton.className = 'cm-expand-button';
-          expandButton.textContent = 'Show more';
+
+          const syncExpandState = () => {
+            const expanded = editorContainer.classList.contains('cm-editor-container--expanded');
+            expandButton.textContent = expanded ? 'Show less' : 'Show more';
+            editor.dom.style.height = expanded ? 'auto' : '';
+          };
+
+          syncExpandState();
           expandOverlay.appendChild(expandButton);
           editorContainer.appendChild(expandOverlay);
 
           expandButton.addEventListener('click', () => {
             editorContainer.classList.toggle('cm-editor-container--expanded');
-            if (editorContainer.classList.contains('cm-editor-container--expanded')) {
-              expandButton.textContent = 'Show less';
-              editor.dom.style.height = 'auto';
-            } else {
-              expandButton.textContent = 'Show more';
-              editor.dom.style.height = '';
-            }
+            syncExpandState();
           });
         }
 
@@ -475,6 +648,8 @@ async function loadNotebook(path) {
           playBtn.addEventListener('click', () => {
             executeCode(editor.state.doc.toString(), output, playBtn);
           });
+
+          pythonCells.push({ editor, output, playBtn, editorContainer });
         }
       } else {
         const parsedHtml = marked.parse(token.raw || '').trim();
@@ -482,6 +657,11 @@ async function loadNotebook(path) {
           const div = document.createElement('div');
           div.className = 'markdown-content-block';
           div.innerHTML = parsedHtml;
+          // Open every link in a new tab.
+          div.querySelectorAll('a[href]').forEach(a => {
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+          });
           contentContainer.appendChild(div);
           if (window.MathJax) {
             window.MathJax.typesetPromise([div]).catch(function (err) {
@@ -490,6 +670,10 @@ async function loadNotebook(path) {
           }
         }
       }
+    }
+
+    if (pythonCells.length > 0) {
+      addRunAllButton(contentContainer, pythonCells);
     }
   } catch (error) {
     console.error('Error loading notebook:', error);

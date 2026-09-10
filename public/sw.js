@@ -1,12 +1,30 @@
-const CACHE_NAME = 'pyodide-runtime-v1';
-const PYODIDE_RUNTIME_PREFIX = 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/';
+const PYODIDE_VERSION = '314.0.6';
+const CACHE_NAME = `pyodide-runtime-${PYODIDE_VERSION}-v1`;
+const PYODIDE_RUNTIME_PREFIX = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+
+// Hosts that micropip talks to when resolving/downloading PyPI wheels for the
+// dependency fallback (see js/pyodide-worker.js). Cached with the same
+// cache-first strategy as the Pyodide runtime so repeat visits work offline and
+// without re-downloading wheels.
+const MICROPIP_PREFIXES = [
+  'https://pypi.org/pypi/',
+  'https://files.pythonhosted.org/'
+];
+
+function isCacheable(url) {
+  if (url.href.startsWith(PYODIDE_RUNTIME_PREFIX)) {
+    return true;
+  }
+
+  return MICROPIP_PREFIXES.some(prefix => url.href.startsWith(prefix));
+}
 
 const PRECACHE_URLS = [
-  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js',
-  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.asm.js',
-  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.asm.wasm',
-  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide-lock.json',
-  'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/python_stdlib.zip'
+  `${PYODIDE_RUNTIME_PREFIX}pyodide.mjs`,
+  `${PYODIDE_RUNTIME_PREFIX}pyodide.asm.mjs`,
+  `${PYODIDE_RUNTIME_PREFIX}pyodide.asm.wasm`,
+  `${PYODIDE_RUNTIME_PREFIX}pyodide-lock.json`,
+  `${PYODIDE_RUNTIME_PREFIX}python_stdlib.zip`
 ];
 
 // Log when the service worker starts
@@ -60,7 +78,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.href.startsWith(PYODIDE_RUNTIME_PREFIX)) {
+  if (isCacheable(url)) {
     event.respondWith(
       caches.match(event.request)
         .then(response => {

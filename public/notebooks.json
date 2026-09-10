@@ -8,5 +8,10 @@
     "title": "PySAT Introduction",
     "path": "pysat.md",
     "root": false
+  },
+  {
+    "title": "Unified Variability Language",
+    "path": "uvllang.md",
+    "root": false
   }
 ]
