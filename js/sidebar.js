@@ -8,7 +8,9 @@ export class Sidebar {
 
   async loadNotebooks() {
     try {
-      const response = await fetch(`${BASE_URL}notebooks.json`);
+      // `no-cache` revalidates against the server so a new deploy's notebook
+      // list appears without waiting out GitHub Pages' Cache-Control.
+      const response = await fetch(`${BASE_URL}notebooks.json`, { cache: 'no-cache' });
       const flatNotebooks = await response.json();
       
       const tree = this.buildTree(flatNotebooks);

@@ -218,7 +218,6 @@ function addRunAllButton(container, pythonCells) {
 
     try {
       for (const cell of pythonCells) {
-        cell.editorContainer.scrollIntoView({ block: 'nearest' });
         const result = await executeCode(
           cell.editor.state.doc.toString(),
           cell.output,
@@ -706,7 +705,9 @@ async function main() {
   }
 
   try {
-    const response = await fetch(`${BASE_URL}notebooks.json`);
+    // `no-cache` forces revalidation so a freshly deployed manifest shows up
+    // without waiting out GitHub Pages' 10-minute Cache-Control.
+    const response = await fetch(`${BASE_URL}notebooks.json`, { cache: 'no-cache' });
     if (!response.ok) {
       throw new Error(`Failed to load notebooks manifest: ${response.statusText}`);
     }
